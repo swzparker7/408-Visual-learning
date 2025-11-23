@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>段页式内存管理可视化教学</title>
+    <style>
+        :root {
+            --seg-color: #3b82f6;
+            --page-color: #10b981;
+            --offset-color: #ef4444;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --highlight-bg: #fef3c7;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: #334155;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 { color: #1e293b; margin-bottom: 10px; }
+        p.desc { max-width: 700px; text-align: center; color: #64748b; margin-bottom: 30px; }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        /* Input Section */
+        .control-panel {
+            grid-column: 1 / -1;
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .input-group label { font-size: 0.9rem; font-weight: 600; margin-bottom: 5px; }
+        
+        input {
+            padding: 8px;
+            border: 2px solid var(--border-color);
+            border-radius: 6px;
+            width: 80px;
+            text-align: center;
+            font-size: 1.1rem;
+            transition: border-color 0.2s;
+        }
+
+        input:focus { outline: none; border-color: var(--seg-color); }
+        
+        #input-seg { border-color: var(--seg-color); color: var(--seg-color); }
+        #input-page { border-color: var(--page-color); color: var(--page-color); }
+        #input-offset { border-color: var(--offset-color); color: var(--offset-color); }
+
+        button {
+            padding: 10px 20px;
+            background: #334155;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.1s;
+        }
+
+        button:hover { background: #1e293b; }
+        button:active { transform: scale(0.95); }
+        button.primary { background: #4f46e5; }
+        button.primary:hover { background: #4338ca; }
+
+        /* Visualization Cards */
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border-color);
+            min-height: 300px;
+            transition: all 0.3s ease;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .data-table th { text-align: left; color: #64748b; padding: 8px; font-weight: 600; }
+        .data-table td { padding: 8px; border-top: 1px solid #f1f5f9; font-family: monospace; font-size: 1rem;}
+        
+        .row-highlight { background-color: var(--highlight-bg); font-weight: bold; transform: scale(1.02); transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        
+        .step-indicator {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+            opacity: 0.5;
+        }
+
+        .active-step { opacity: 1; }
+
+        /* Calculation Box */
+        .calc-box {
+            margin-top: 20px;
+            background: #1e293b;
+            color: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 1.1rem;
+            display: none;
+        }
+        .calc-part { margin: 5px 0; }
+        .result-highlight { color: #fbbf24; font-weight: bold; font-size: 1.3rem; margin-top: 10px; border-top: 1px dashed #475569; padding-top: 10px; }
+
+        /* Specific Colors */
+        .step-1 { background: var(--seg-color); }
+        .step-2 { background: var(--page-color); }
+        .step-3 { background: var(--offset-color); }
+
+        .error-msg {
+            color: #ef4444;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 10px;
+            min-height: 24px;
+        }
+        
+        .hidden { opacity: 0.3; pointer-events: none; }
+
+        @media (max-width: 768px) {
+            .container { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>段页式内存管理演示</h1>
+    <p class="desc">逻辑地址结构 = [ 段号 S ] + [ 页号 P ] + [ 页内偏移 D ]<br>
+    系统首先通过 S 查段表找到页表基址，再通过 P 查页表找到物理块号，最后拼接待偏移 D。</p>
+
+    <div class="control-panel">
+        <div class="input-group">
+            <label style="color:var(--seg-color)">段号 (S)</label>
+            <input type="number" id="input-seg" min="0" max="3" value="0">
+        </div>
+        <div class="input-group">
+            <label style="color:var(--page-color)">页号 (P)</label>
+            <input type="number" id="input-page" min="0" max="3" value="1">
+        </div>
+        <div class="input-group">
+            <label style="color:var(--offset-color)">偏移 (D)</label>
+            <input type="number" id="input-offset" min="0" max="1023" value="100">
+        </div>
+        <div style="display:flex; gap:10px; align-items:flex-end;">
+            <button onclick="randomize()">🎲 随机生成</button>
+            <button class="primary" onclick="simulate()">🚀 执行转换</button>
+        </div>
+    </div>
+    <div class="error-msg" id="error-display"></div>
+
+    <div class="container">
+        <!-- Step 1: Segment Table -->
+        <div class="card" id="card-seg">
+            <div class="card-title">
+                <span>1. 段表 (Segment Table)</span>
+                <span class="step-indicator step-1" id="badge-seg">Step 1</span>
+            </div>
+            <p style="font-size:0.9rem; color:#666">根据段号 S 查找该段对应的页表。</p>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>段号 (Idx)</th>
+                        <th>页表 ID</th>
+                        <th>页表长度</th>
+                    </tr>
+                </thead>
+                <tbody id="seg-table-body">
+                    <!-- JS populates this -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Step 2: Page Table -->
+        <div class="card hidden" id="card-page">
+            <div class="card-title">
+                <span>2. 页表 (Page Table)</span>
+                <span class="step-indicator step-2" id="badge-page">Step 2</span>
+            </div>
+            <p style="font-size:0.9rem; color:#666" id="pt-desc">根据页号 P 查找物理块号(Frame)。</p>
+            <div id="page-table-container">
+                <div style="text-align:center; padding:40px; color:#999;">请先选择段表</div>
+            </div>
+        </div>
+
+        <!-- Step 3: Physical Address -->
+        <div class="card hidden" id="card-calc">
+            <div class="card-title">
+                <span>3. 物理地址合成</span>
+                <span class="step-indicator step-3" id="badge-calc">Step 3</span>
+            </div>
+            <p style="font-size:0.9rem; color:#666">物理地址 = 块号 × 页大小 + 偏移</p>
+            
+            <div class="calc-box" id="calc-display">
+                <!-- Results go here -->
+            </div>
+            <div style="margin-top:20px; text-align:center;">
+                <div style="font-size:0.8rem; color:#64748b; margin-bottom:5px;">物理内存视图 (示意)</div>
+                <div style="width:100%; height:40px; background:#e2e8f0; border-radius:4px; position:relative; overflow:hidden;">
+                    <div id="mem-visual-bar" style="width:0%; height:100%; background:var(--offset-color); transition: width 1s ease-out;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- Data Model ---
+    const PAGE_SIZE = 1024; // 假设页面大小为 1KB
+
+    // 段表：每个段指向一个特定的页表
+    const segmentTable = [
+        { id: 0, ptId: 'PT_A', length: 4 },
+        { id: 1, ptId: 'PT_B', length: 3 },
+        { id: 2, ptId: 'PT_C', length: 5 },
+        { id: 3, ptId: 'PT_D', length: 2 }
+    ];
+
+    // 页表集合：Key是页表ID，Value是页表项列表(页号 -> 块号)
+    const pageTables = {
+        'PT_A': [{p:0, f:10}, {p:1, f:12}, {p:2, f:8}, {p:3, f:50}],
+        'PT_B': [{p:0, f:20}, {p:1, f:22}, {p:2, f:99}],
+        'PT_C': [{p:0, f:5}, {p:1, f:6}, {p:2, f:7}, {p:3, f:100}, {p:4, f:101}],
+        'PT_D': [{p:0, f:200}, {p:1, f:202}]
+    };
+
+    // --- Initialization ---
+    function init() {
+        renderSegTable();
+        randomize();
+    }
+
+    function renderSegTable() {
+        const tbody = document.getElementById('seg-table-body');
+        tbody.innerHTML = segmentTable.map(seg => `
+            <tr id="seg-row-${seg.id}">
+                <td>${seg.id}</td>
+                <td>${seg.ptId}</td>
+                <td>${seg.length}</td>
+            </tr>
+        `).join('');
+    }
+
+    function randomize() {
+        // Reset UI
+        resetVisuals();
+        
+        // Random valid inputs
+        const randSeg = segmentTable[Math.floor(Math.random() * segmentTable.length)];
+        const randPage = Math.floor(Math.random() * randSeg.length); 
+        const randOffset = Math.floor(Math.random() * PAGE_SIZE);
+
+        document.getElementById('input-seg').value = randSeg.id;
+        document.getElementById('input-page').value = randPage;
+        document.getElementById('input-offset').value = randOffset;
+        document.getElementById('error-display').innerText = "";
+    }
+
+    function resetVisuals() {
+        document.querySelectorAll('.row-highlight').forEach(el => el.classList.remove('row-highlight'));
+        document.getElementById('card-page').classList.add('hidden');
+        document.getElementById('card-calc').classList.add('hidden');
+        document.getElementById('calc-display').style.display = 'none';
+        document.getElementById('page-table-container').innerHTML = '<div style="text-align:center; padding:40px; color:#999;">请先选择段表</div>';
+        document.getElementById('mem-visual-bar').style.width = '0%';
+        document.getElementById('error-display').innerText = "";
+    }
+
+    async function simulate() {
+        resetVisuals();
+        const segInput = parseInt(document.getElementById('input-seg').value);
+        const pageInput = parseInt(document.getElementById('input-page').value);
+        const offsetInput = parseInt(document.getElementById('input-offset').value);
+
+        // --- Step 1: Lookup Segment ---
+        const segEntry = segmentTable.find(s => s.id === segInput);
+        
+        if (!segEntry) {
+            showError(`段越界异常 (Segmentation Fault): 段号 ${segInput} 不存在`);
+            return;
+        }
+
+        // Highlight Seg Row
+        const segRow = document.getElementById(`seg-row-${segInput}`);
+        segRow.scrollIntoView({behavior: 'smooth', block: 'center'});
+        segRow.classList.add('row-highlight');
+        
+        await delay(600);
+
+        // --- Step 2: Show Page Table ---
+        document.getElementById('card-page').classList.remove('hidden');
+        renderPageTable(segEntry.ptId);
+        
+        if (pageInput >= segEntry.length) {
+            showError(`页越界异常 (Invalid Page): 段 ${segInput} 的最大页号是 ${segEntry.length - 1}，你请求了 ${pageInput}`);
+            return;
+        }
+
+        // Find Page Entry
+        const pTable = pageTables[segEntry.ptId];
+        const pageEntry = pTable.find(p => p.p === pageInput);
+        
+        await delay(400);
+        const pageRow = document.getElementById(`page-row-${pageInput}`);
+        if(pageRow) {
+            pageRow.classList.add('row-highlight');
+        } else {
+            showError("未知页错误"); // Shouldn't happen given logic above
+            return;
+        }
+
+        await delay(600);
+
+        // --- Step 3: Calculate ---
+        document.getElementById('card-calc').classList.remove('hidden');
+        const calcDisplay = document.getElementById('calc-display');
+        calcDisplay.style.display = 'block';
+        
+        const frameNum = pageEntry.f;
+        const physAddr = frameNum * PAGE_SIZE + offsetInput;
+
+        calcDisplay.innerHTML = `
+            <div class="calc-part"><span style="color:var(--page-color)">物理块号 (f)</span> = ${frameNum}</div>
+            <div class="calc-part"><span style="color:var(--offset-color)">页大小 (L)</span> = ${PAGE_SIZE}</div>
+            <div class="calc-part"><span style="color:var(--offset-color)">页内偏移 (d)</span> = ${offsetInput}</div>
+            <div style="border-bottom: 1px solid #475569; margin: 10px 0;"></div>
+            <div class="calc-part">ADDR = f × L + d</div>
+            <div class="calc-part">ADDR = ${frameNum} × ${PAGE_SIZE} + ${offsetInput}</div>
+            <div class="result-highlight">物理地址: ${physAddr}</div>
+        `;
+
+        // Visual bar animation (just for effect)
+        setTimeout(() => {
+            document.getElementById('mem-visual-bar').style.width = '100%';
+        }, 100);
+    }
+
+    function renderPageTable(ptId) {
+        const container = document.getElementById('page-table-container');
+        const pages = pageTables[ptId];
+        const desc = document.getElementById('pt-desc');
+        desc.innerHTML = `正在查看 <b style="color:var(--seg-color)">${ptId}</b> (对应段号)`;
+
+        let html = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>页号 (P)</th>
+                        <th>物理块号 (Frame)</th>
+                        <th>状态位</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        html += pages.map(p => `
+            <tr id="page-row-${p.p}">
+                <td>${p.p}</td>
+                <td style="color:var(--page-color); font-weight:bold;">${p.f}</td>
+                <td>Valid</td>
+            </tr>
+        `).join('');
+        
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+    }
+
+    function showError(msg) {
+        document.getElementById('error-display').innerText = "⚠️ " + msg;
+        document.getElementById('error-display').classList.add('shake');
+        setTimeout(() => document.getElementById('error-display').classList.remove('shake'), 500);
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // Start
+    init();
+</script>
+
+</body>
+</html>

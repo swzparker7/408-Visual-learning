@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>成组链接法可视化教学</title>
+    <style>
+        :root {
+            --super-color: #6366f1; /* Indigo */
+            --free-color: #10b981;  /* Green */
+            --used-color: #ef4444;  /* Red */
+            --link-color: #f59e0b;  /* Amber - Special Link Block */
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--bg-color);
+            color: #334155;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h1 { margin-bottom: 5px; color: #1e293b; }
+        .subtitle { color: #64748b; margin-bottom: 30px; font-size: 0.95rem; text-align: center; max-width: 700px; }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 30px;
+            max-width: 1100px;
+            width: 100%;
+        }
+
+        /* --- Superblock Section --- */
+        .panel {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            border: 1px solid var(--border-color);
+        }
+
+        .sb-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stack-box {
+            border: 3px solid var(--super-color);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            width: 120px;
+            min-height: 180px;
+            background: #e0e7ff;
+            padding: 10px;
+            display: flex;
+            flex-direction: column-reverse; /* Bottom up */
+            gap: 5px;
+            position: relative;
+        }
+
+        .stack-label {
+            font-weight: bold;
+            color: var(--super-color);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .stack-item {
+            background: var(--free-color);
+            color: white;
+            text-align: center;
+            padding: 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-family: monospace;
+            transition: all 0.3s;
+        }
+
+        .stack-item.link-marker {
+            background: var(--link-color); /* The bottom one is special */
+            border: 2px dashed #fff;
+        }
+
+        /* --- Disk Section --- */
+        .disk-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .disk-block {
+            aspect-ratio: 1;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            position: relative;
+            cursor: default;
+            transition: transform 0.2s, background-color 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .disk-block .id-label { font-size: 1.1rem; }
+        .disk-block .sub-label { font-size: 0.6rem; margin-top: 2px; opacity: 0.8; }
+
+        /* States */
+        .b-used { background: #fee2e2; color: var(--used-color); border-color: #fca5a5; }
+        .b-free { background: #d1fae5; color: var(--free-color); border-color: #6ee7b7; }
+        .b-link { 
+            background: #fef3c7; 
+            color: #b45309; 
+            border-color: var(--link-color);
+            box-shadow: inset 0 0 0 2px var(--link-color);
+        }
+
+        /* --- Controls & Log --- */
+        .controls {
+            grid-column: 1 / -1;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: transform 0.1s;
+        }
+
+        .btn-alloc { background: var(--used-color); color: white; }
+        .btn-free { background: var(--free-color); color: white; }
+        .btn-alloc:hover, .btn-free:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-alloc:disabled, .btn-free:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .log-area {
+            grid-column: 1 / -1;
+            background: #1e293b;
+            color: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            height: 120px;
+            overflow-y: auto;
+            border: 1px solid #334155;
+            font-size: 0.9rem;
+        }
+        .log-entry { margin-bottom: 5px; border-left: 3px solid transparent; padding-left: 8px; }
+        .log-op { border-color: #38bdf8; color: #e0f2fe; }
+        .log-crit { border-color: #f59e0b; color: #fcd34d; font-weight: bold; }
+
+        /* Helpers */
+        .highlight-flash { animation: flash 1s ease; }
+        @keyframes flash { 0% { background: #ffff00; transform: scale(1.1); } 100% { transform: scale(1); } }
+        
+        .arrow-pointer {
+            position: absolute;
+            font-size: 20px;
+            color: var(--super-color);
+            right: -30px;
+            bottom: 5px;
+        }
+
+        .capacity-indicator {
+            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>成组链接法 (Group Linking) 演示</h1>
+    <p class="subtitle">
+        Unix 系统用来管理空闲块的经典算法。<br>
+        超级块（Superblock）充当一个有限容量的“栈”。当栈空时，它从链中“取出”下一组索引；当栈满时，它将当前栈“存入”新的空闲块。
+    </p>
+
+    <div class="controls">
+        <button class="btn-alloc" onclick="allocateBlock()">1. 请求分配 (Allocate)</button>
+        
+        <div style="display:flex; align-items:center; gap:5px;">
+            <span style="font-size:0.9rem; font-weight:bold;">回收块号:</span>
+            <input type="number" id="free-input" value="10" min="0" max="19" style="width:50px; padding:8px; border-radius:6px; border:1px solid #ccc;">
+        </div>
+        <button class="btn-free" onclick="freeBlock()">2. 释放回收 (Free)</button>
+        <button onclick="resetSystem()" style="background:#64748b; color:white;">重置</button>
+    </div>
+
+    <div class="layout">
+        <!-- Left: Superblock -->
+        <div class="panel sb-container">
+            <div class="stack-label">
+                内存超级块 (Superblock)<br>
+                <span style="font-size:0.8rem; font-weight:normal;">s_free stack</span>
+            </div>
+            
+            <div class="stack-box" id="stack-visual">
+                <!-- Stack Items go here -->
+            </div>
+            <div class="capacity-indicator">
+                Stack Size: <span id="stack-count">0</span> / <span id="stack-max">3</span>
+            </div>
+            <div style="margin-top:20px; font-size:0.85rem; color:#666; padding:10px; background:#f1f5f9; border-radius:6px;">
+                <b>机制说明：</b><br>
+                栈底元素 (Bottom) 是特殊的。它不仅是一个空闲块，还指向下一组空闲块的物理位置。<br>
+                <span style="color:var(--link-color)">● 黄色</span> 代表链节点。
+            </div>
+        </div>
+
+        <!-- Right: Disk Map -->
+        <div class="panel">
+            <div class="stack-label" style="text-align:left; color:#333;">
+                磁盘存储空间 (Disk Blocks)
+            </div>
+            <div class="disk-grid" id="disk-grid">
+                <!-- Grid Items go here -->
+            </div>
+        </div>
+
+        <!-- Bottom: Log -->
+        <div class="log-area" id="log-console">
+            <div class="log-entry">System initialized. Group size (limit) set to 3 for demo.</div>
+        </div>
+    </div>
+
+<script>
+    /**
+     * Simulation Logic
+     * 为了教学演示，我们将每组的最大容量 (NICFREE) 设为 3 (真实系统通常为100)
+     */
+    const GROUP_LIMIT = 3;
+    const TOTAL_BLOCKS = 20;
+
+    // Data Structures
+    let superBlock = []; // Array acting as stack. [bottom, ..., top]
+    // 磁盘块状态: 
+    // { status: 'free'|'used'|'link', nextGroup: [] (if link) }
+    let diskMap = [];
+
+    function init() {
+        // Initialize Disk
+        diskMap = new Array(TOTAL_BLOCKS).fill(null).map((_, i) => ({
+            id: i,
+            status: 'used', // Default all to used, then free some
+            nextGroup: null
+        }));
+
+        // Construct a linked scenario
+        // Chain: Superblock -> Group A (Block 5) -> Group B (Block 12) -> End (0)
+        
+        // Group B (at Block 12): Contains [13, 14] (End of chain)
+        diskMap[13].status = 'free';
+        diskMap[14].status = 'free';
+        
+        diskMap[12].status = 'link'; // Index Block
+        diskMap[12].nextGroup = [13, 14]; // Blocks available in this group
+        // Note: Real Unix puts the 'next' pointer as the first item, 
+        // here we abstract nextGroup just as the content of the block.
+        // Actually, Block 12's content is the array [13, 14] plus a terminator.
+
+        // Group A (at Block 5): Contains [6, 7], points to 12
+        diskMap[6].status = 'free';
+        diskMap[7].status = 'free';
+        
+        diskMap[5].status = 'link';
+        diskMap[5].nextGroup = [6, 7, 12]; // 12 is the link to next
+
+        // Superblock: Contains [1, 2], points to 5
+        // 5 is the "bottom" of the stack (the link block)
+        superBlock = [5, 1, 2]; // 5 is at index 0 (bottom), 2 is top
+        diskMap[1].status = 'free';
+        diskMap[2].status = 'free';
+        diskMap[5].status = 'free'; // Effectively free as it is in SB, but it holds data
+
+        render();
+        log("Ready. Initial state: Superblock -> Block 5 -> Block 12 -> End");
+    }
+
+    function render() {
+        // Render Stack
+        const stackContainer = document.getElementById('stack-visual');
+        stackContainer.innerHTML = '';
+        
+        // Render from top to bottom visually (array end is top)
+        for (let i = superBlock.length - 1; i >= 0; i--) {
+            const blockId = superBlock[i];
+            const div = document.createElement('div');
+            div.className = 'stack-item';
+            div.innerText = `#${blockId}`;
+            if (i === 0) {
+                div.classList.add('link-marker');
+                div.title = "Link Block (Bottom)";
+            }
+            stackContainer.appendChild(div);
+        }
+
+        document.getElementById('stack-count').innerText = superBlock.length;
+        document.getElementById('stack-max').innerText = GROUP_LIMIT;
+
+        // Render Disk
+        const grid = document.getElementById('disk-grid');
+        grid.innerHTML = '';
+        diskMap.forEach(block => {
+            const div = document.createElement('div');
+            div.className = `disk-block b-${block.status === 'link' ? 'link' : (block.status === 'free' ? 'free' : 'used')}`;
+            
+            // Check if this block is currently in Superblock (visual override)
+            if (superBlock.includes(block.id)) {
+                // It is "Free" in system eyes, but physically on disk we treat it as free space
+                div.className = 'disk-block b-free';
+                if(block.id === superBlock[0]) {
+                     div.className = 'disk-block b-link'; // Show as link source
+                }
+            }
+
+            let content = `<span class="id-label">${block.id}</span>`;
+            
+            if (block.status === 'link') {
+                content += `<span class="sub-label">Link➜</span>`;
+                // Add tooltip or small text showing what it holds
+                const nexts = block.nextGroup.join(',');
+                div.title = `Index Block. Contains: [${nexts}]`;
+            } else if (block.status === 'used') {
+                 content += `<span class="sub-label">Data</span>`;
+            }
+
+            div.innerHTML = content;
+            div.id = `blk-${block.id}`;
+            grid.appendChild(div);
+        });
+    }
+
+    async function allocateBlock() {
+        if (superBlock.length === 0) {
+            log("Error: No free blocks left (System Full)!");
+            return;
+        }
+
+        // Standard Allocate
+        const allocatedId = superBlock.pop();
+        
+        log("Alloc", `Popped Block #${allocatedId} from Superblock.`);
+        
+        // Check Boundary Condition: Was this the last block? (The Link Block)
+        if (superBlock.length === 0) {
+            log("Crit", `⚠️ Stack Empty! Block #${allocatedId} was the Link Block.`);
+            log("Crit", `Action: Copying index info from Block #${allocatedId} into Superblock...`);
+            
+            // Retrieve the data stored in this block (simulated)
+            const linkBlockData = diskMap[allocatedId].nextGroup; // Logic: previous group stored this here
+            
+            if (linkBlockData && linkBlockData.length > 0) {
+                await delay(800); // Wait for user to see empty stack
+                superBlock = [...linkBlockData]; // Copy data to SB
+                diskMap[allocatedId].nextGroup = null; // Clear data on disk
+                log("Sys", `Refilled Superblock with [${superBlock.join(', ')}]`);
+            } else {
+                log("Sys", "Link chain ended. No more groups.");
+            }
+        }
+
+        // Update Disk State
+        diskMap[allocatedId].status = 'used';
+        
+        render();
+        highlight(`blk-${allocatedId}`);
+    }
+
+    async function freeBlock() {
+        const input = document.getElementById('free-input');
+        const id = parseInt(input.value);
+
+        // Validation
+        if (isNaN(id) || id < 0 || id >= TOTAL_BLOCKS) {
+            log("Err", "Invalid block ID."); return;
+        }
+        if (diskMap[id].status !== 'used') {
+            log("Err", `Block #${id} is not 'used'. Cannot free.`); return;
+        }
+        if (superBlock.includes(id)) {
+            log("Err", `Block #${id} is already in Superblock.`); return;
+        }
+
+        log("Free", `Requesting release of Block #${id}...`);
+
+        // Check Boundary: Is Stack Full?
+        if (superBlock.length >= GROUP_LIMIT) {
+            log("Crit", `⚠️ Superblock Full (${GROUP_LIMIT})! Cannot push #${id} directly.`);
+            log("Crit", `Action: Use Block #${id} as new Index Block. Copying Stack to it.`);
+            
+            highlightStack();
+            await delay(800);
+
+            // 1. Copy current stack to the memory of block 'id'
+            // In simulation, we store it in the object property
+            diskMap[id].nextGroup = [...superBlock];
+            diskMap[id].status = 'link'; // It becomes a link block
+            
+            log("Sys", `Copied [${superBlock.join(', ')}] into Block #${id}.`);
+
+            // 2. Clear stack
+            superBlock = [];
+
+            // 3. Push the new link block to stack
+            superBlock.push(id);
+             log("Sys", `Superblock reset. Pushed #${id} as the new Link (Bottom).`);
+
+        } else {
+            // Normal Push
+            superBlock.push(id);
+            diskMap[id].status = 'free';
+            log("Free", `Pushed Block #${id} to Superblock.`);
+        }
+        
+        // Pick a new random used block for the input for convenience
+        const usedBlocks = diskMap.filter(b => b.status === 'used' && b.id !== id);
+        if(usedBlocks.length > 0) input.value = usedBlocks[0].id;
+
+        render();
+        highlight(`blk-${id}`);
+    }
+
+    function log(type, msg) {
+        const consoleEl = document.getElementById('log-console');
+        const div = document.createElement('div');
+        div.className = `log-entry ${type === 'Crit' ? 'log-crit' : (type === 'Free' || type === 'Alloc' ? 'log-op' : '')}`;
+        div.innerText = `> ${msg}`;
+        consoleEl.insertBefore(div, consoleEl.firstChild);
+    }
+
+    function highlight(elementId) {
+        const el = document.getElementById(elementId);
+        if(el) {
+            el.classList.add('highlight-flash');
+            setTimeout(() => el.classList.remove('highlight-flash'), 1000);
+        }
+    }
+
+    function highlightStack() {
+        document.getElementById('stack-visual').classList.add('highlight-flash');
+        setTimeout(() => document.getElementById('stack-visual').classList.remove('highlight-flash'), 1000);
+    }
+
+    function delay(ms) { return new Promise(res => setTimeout(res, ms)); }
+    function resetSystem() { init(); }
+
+    // Start
+    init();
+
+</script>
+
+</body>
+</html>

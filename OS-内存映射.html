@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>mmap 内存映射交互演示</title>
+    <style>
+        :root {
+            --disk-color: #475569;
+            --ram-color: #10b981;
+            --user-color: #3b82f6;
+            --dirty-color: #ef4444;
+            --bg-color: #f0f9ff;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'Segoe UI', monospace, sans-serif;
+            background-color: var(--bg-color);
+            padding: 20px;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 { margin-bottom: 5px; color: #1e3a8a; }
+        .subtitle { color: #64748b; margin-bottom: 20px; max-width: 800px; text-align: center; font-size: 0.9rem; }
+
+        /* Control Panel */
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: monospace;
+            font-size: 1rem;
+        }
+
+        .btn-map { background: var(--user-color); color: white; }
+        .btn-read { background: white; border: 2px solid var(--user-color); color: var(--user-color); }
+        .btn-write { background: white; border: 2px solid var(--dirty-color); color: var(--dirty-color); }
+        .btn-sync { background: var(--disk-color); color: white; }
+        
+        button:hover { transform: translateY(-2px); shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* Main Stage */
+        .stage {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 30px;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .column {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border: 1px solid #e2e8f0;
+            position: relative;
+        }
+
+        .col-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+        }
+
+        /* Memory Blocks */
+        .block-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .block {
+            height: 50px;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 15px;
+            font-family: monospace;
+            font-size: 1.2rem;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .block-index { font-size: 0.8rem; color: #94a3b8; position: absolute; left: -25px; }
+
+        /* User Space Styles */
+        .user-block { border-color: var(--user-color); background: #eff6ff; opacity: 0.5; }
+        .user-block.mapped { opacity: 1; border-style: solid; cursor: pointer; }
+        .user-block.active { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3); }
+
+        /* RAM Styles */
+        .ram-block { border-color: #cbd5e1; background: #f8fafc; color: transparent; }
+        .ram-block.loaded { background: #d1fae5; border-color: var(--ram-color); border-style: solid; color: #065f46; }
+        .ram-block.dirty { background: #fee2e2; border-color: var(--dirty-color); color: #991b1b; }
+        .ram-tag { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; margin-left: auto; }
+        
+        /* Disk Styles */
+        .disk-block { background: #e2e8f0; border-style: solid; border-color: var(--disk-color); color: #334155; }
+
+        /* Animations */
+        @keyframes flash-read {
+            0% { background-color: yellow; }
+            100% { background-color: inherit; }
+        }
+        .flash { animation: flash-read 0.5s ease; }
+
+        /* Console Log */
+        .console {
+            margin-top: 30px;
+            background: #1e293b;
+            color: #38bdf8;
+            width: 100%;
+            max-width: 1000px;
+            height: 150px;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            overflow-y: auto;
+            border: 1px solid #334155;
+        }
+        .log-entry { margin-bottom: 5px; border-left: 3px solid transparent; padding-left: 8px; }
+        .log-sys { color: #fbbf24; border-left-color: #fbbf24; } /* System/Kernel */
+        .log-user { color: #a5f3fc; } /* User action */
+        .log-err { color: #ef4444; }
+
+        /* Status Indicators */
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status-clean { background: #d1fae5; color: #065f46; }
+        .status-dirty { background: #fee2e2; color: #991b1b; }
+
+        .arrow { font-size: 20px; color: #94a3b8; margin: 5px 0; text-align: center;}
+    </style>
+</head>
+<body>
+
+    <h1>mmap() 内存映射演示</h1>
+    <p class="subtitle">将磁盘文件直接映射到进程的虚拟地址空间，像操作数组一样读写文件。</p>
+
+    <div class="controls">
+        <button id="btn-mmap" class="btn-map" onclick="performMmap()">1. mmap(fd, ...)</button>
+        <div style="border-left: 1px solid #e2e8f0; margin: 0 10px;"></div>
+        
+        <div>
+            <span style="font-size:0.9rem; font-weight:bold; margin-right:5px;">索引(0-3):</span>
+            <input type="number" id="idx-input" min="0" max="3" value="0" style="width:40px; padding:5px; border-radius:4px; border:1px solid #ccc;">
+        </div>
+        <button id="btn-read" class="btn-read" onclick="accessRead()" disabled>2. Read (data[i])</button>
+        
+        <div>
+            <span style="font-size:0.9rem; font-weight:bold; margin-right:5px;">值:</span>
+            <input type="text" id="val-input" value="X" maxlength="1" style="width:30px; padding:5px; border-radius:4px; border:1px solid #ccc;">
+        </div>
+        <button id="btn-write" class="btn-write" onclick="accessWrite()" disabled>3. Write (data[i]=v)</button>
+        
+        <div style="border-left: 1px solid #e2e8f0; margin: 0 10px;"></div>
+        <button id="btn-sync" class="btn-sync" onclick="performSync()" disabled>4. msync()</button>
+    </div>
+
+    <div class="stage">
+        <!-- Column 1: User Process -->
+        <div class="column">
+            <div class="col-title">
+                <span style="color:var(--user-color)">🔵 用户进程空间</span>
+                (Virtual Mem)
+            </div>
+            <div style="margin-bottom:10px; font-size:0.8rem; color:#666;">char *ptr = ...</div>
+            <div class="block-container" id="user-blocks">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <!-- Column 2: RAM / OS -->
+        <div class="column">
+            <div class="col-title">
+                <span style="color:var(--ram-color)">🟢 物理内存 / OS</span>
+                (Page Cache)
+            </div>
+             <div style="margin-bottom:10px; font-size:0.8rem; color:#666;">Page Fault Handler</div>
+            <div class="block-container" id="ram-blocks">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <!-- Column 3: Disk -->
+        <div class="column">
+            <div class="col-title">
+                <span style="color:var(--disk-color)">⚫ 磁盘文件</span>
+                (file.txt)
+            </div>
+             <div style="margin-bottom:10px; font-size:0.8rem; color:#666;">Persistent Storage</div>
+            <div class="block-container" id="disk-blocks">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <div class="console" id="console">
+        <div class="log-entry">System ready. File size: 4 Pages.</div>
+    </div>
+
+<script>
+    // --- Configuration ---
+    const BLOCK_COUNT = 4;
+    const INITIAL_DATA = ['A', 'B', 'C', 'D'];
+    
+    // --- State ---
+    let isMapped = false;
+    let diskData = [...INITIAL_DATA];
+    let ramState = Array(BLOCK_COUNT).fill(null); // null or { val: 'A', dirty: false }
+    
+    // --- Initialization ---
+    function init() {
+        renderDisk();
+        renderRam();
+        renderUser();
+    }
+
+    // --- Core Logic Actions ---
+
+    async function performMmap() {
+        if (isMapped) return;
+        log("user", `Calling mmap(fd, length=4, PROT_READ|PROT_WRITE, MAP_SHARED, ...)...`);
+        await delay(500);
+        
+        isMapped = true;
+        log("sys", `Kernel: Created virtual memory area (VMA). No data loaded yet (Lazy Loading).`);
+        log("sys", `Kernel: Returns pointer to process.`);
+        
+        renderUser();
+        document.getElementById('btn-mmap').disabled = true;
+        document.getElementById('btn-mmap').innerText = "Mapped";
+        enableControls(true);
+    }
+
+    async function accessRead() {
+        const idx = getIndex();
+        if (idx === null) return;
+
+        log("user", `Accessing ptr[${idx}] (Read)...`);
+        highlightUserBlock(idx);
+        await delay(300);
+
+        if (ramState[idx] === null) {
+            // Page Fault Logic
+            log("sys", `🛑 Page Fault! Address not in RAM.`);
+            await delay(400);
+            
+            log("sys", `Kernel: Reading Block ${idx} from Disk to Page Cache...`);
+            highlightDiskBlock(idx);
+            await delay(600);
+            
+            // Load to RAM
+            ramState[idx] = { val: diskData[idx], dirty: false };
+            renderRam();
+            log("sys", `Kernel: Page Table updated. Resuming process.`);
+            await delay(300);
+        } else {
+            log("sys", `✅ Page Hit. Data found in Page Cache.`);
+        }
+
+        // Visualize data flow to user
+        updateUserBlockVal(idx, ramState[idx].val);
+    }
+
+    async function accessWrite() {
+        const idx = getIndex();
+        const val = document.getElementById('val-input').value.toUpperCase() || 'X';
+        if (idx === null) return;
+
+        log("user", `Writing ptr[${idx}] = '${val}'...`);
+        highlightUserBlock(idx);
+        await delay(300);
+
+        // Check if page exists in RAM (Write needs page to be present usually)
+        if (ramState[idx] === null) {
+            log("sys", `🛑 Page Fault! (Write Allocate) Fetching page first...`);
+            highlightDiskBlock(idx);
+            await delay(500);
+            // Load original first (simplified)
+            ramState[idx] = { val: diskData[idx], dirty: false }; 
+            renderRam();
+        }
+
+        // Perform Write in RAM
+        log("sys", `Kernel: Updating Page Cache. Setting DIRTY bit.`);
+        ramState[idx].val = val;
+        ramState[idx].dirty = true;
+        
+        renderRam();
+        updateUserBlockVal(idx, val);
+        
+        log("sys", `⚠️ Note: Disk data is NOT updated yet!`);
+    }
+
+    async function performSync() {
+        log("user", `Calling msync()... forcing flush to disk.`);
+        document.getElementById('btn-sync').disabled = true;
+
+        let dirtyCount = 0;
+        for (let i = 0; i < BLOCK_COUNT; i++) {
+            if (ramState[i] && ramState[i].dirty) {
+                dirtyCount++;
+                log("sys", `Kernel: Flushing Dirty Page ${i} ('${ramState[i].val}') to Disk.`);
+                
+                // Visual flush effect
+                const ramBlock = document.getElementById(`ram-${i}`);
+                ramBlock.style.transform = "translateX(100px)";
+                await delay(400);
+                
+                diskData[i] = ramState[i].val;
+                ramState[i].dirty = false; // Clean now
+                
+                renderDisk();
+                renderRam(); // Re-render to remove red color
+                ramBlock.style.transform = "translateX(0)";
+            }
+        }
+
+        if (dirtyCount === 0) {
+            log("sys", "Kernel: No dirty pages to flush.");
+        } else {
+            log("sys", `Kernel: Sync complete. Disk is up to date.`);
+        }
+        
+        document.getElementById('btn-sync').disabled = false;
+    }
+
+    // --- Rendering Helpers ---
+
+    function renderDisk() {
+        const container = document.getElementById('disk-blocks');
+        container.innerHTML = diskData.map((val, i) => `
+            <div class="block disk-block" id="disk-${i}">
+                <span class="block-index">${i}</span>
+                <span>${val}</span>
+                <span style="font-size:0.7rem">BLK</span>
+            </div>
+        `).join('');
+    }
+
+    function renderRam() {
+        const container = document.getElementById('ram-blocks');
+        container.innerHTML = ramState.map((page, i) => {
+            if (!page) {
+                return `
+                <div class="block ram-block" id="ram-${i}">
+                    <span class="block-index">${i}</span>
+                    <span>(empty)</span>
+                </div>`;
+            }
+            const dirtyClass = page.dirty ? 'dirty' : 'loaded';
+            const statusText = page.dirty ? 'DIRTY' : 'CLEAN';
+            const statusClass = page.dirty ? 'status-dirty' : 'status-clean';
+            
+            return `
+            <div class="block ram-block ${dirtyClass}" id="ram-${i}">
+                <span class="block-index">${i}</span>
+                <strong>${page.val}</strong>
+                <span class="status-badge ${statusClass}">${statusText}</span>
+            </div>`;
+        }).join('');
+    }
+
+    function renderUser() {
+        const container = document.getElementById('user-blocks');
+        container.innerHTML = Array(BLOCK_COUNT).fill(0).map((_, i) => {
+            const mappedClass = isMapped ? 'mapped' : '';
+            const content = isMapped ? '?' : '<span style="font-size:1.5rem">⛔</span>';
+            
+            return `
+            <div class="block user-block ${mappedClass}" id="user-${i}" onclick="if(isMapped) setIndex(${i})">
+                <span class="block-index">${i}</span>
+                <span id="user-val-${i}">${content}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // --- UI Utilities ---
+
+    function getIndex() {
+        return parseInt(document.getElementById('idx-input').value);
+    }
+
+    function setIndex(i) {
+        document.getElementById('idx-input').value = i;
+    }
+
+    function enableControls(enable) {
+        document.getElementById('btn-read').disabled = !enable;
+        document.getElementById('btn-write').disabled = !enable;
+        document.getElementById('btn-sync').disabled = !enable;
+    }
+
+    function log(type, msg) {
+        const consoleEl = document.getElementById('console');
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        
+        const time = new Date().toLocaleTimeString().split(' ')[0];
+        entry.innerText = `[${time}] ${msg}`;
+        
+        consoleEl.appendChild(entry);
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function highlightUserBlock(idx) {
+        const el = document.getElementById(`user-${idx}`);
+        el.classList.add('active');
+        setTimeout(() => el.classList.remove('active'), 500);
+    }
+
+    function updateUserBlockVal(idx, val) {
+        const el = document.getElementById(`user-val-${idx}`);
+        el.innerText = val;
+        el.parentElement.classList.add('flash');
+        setTimeout(() => el.parentElement.classList.remove('flash'), 500);
+    }
+
+    function highlightDiskBlock(idx) {
+        const el = document.getElementById(`disk-${idx}`);
+        el.style.borderColor = '#3b82f6';
+        el.style.backgroundColor = '#dbeafe';
+        setTimeout(() => {
+            el.style.borderColor = '';
+            el.style.backgroundColor = '';
+        }, 500);
+    }
+
+    // Start
+    init();
+</script>
+
+</body>
+</html>

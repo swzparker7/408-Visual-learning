@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KMP 算法交互式可视化学习</title>
+    <style>
+        /* --- 1. 全局样式与布局 --- */
+        :root {
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --primary: #3498db; /* 蓝色 - 默认/指针 */
+            --success: #2ecc71; /* 绿色 - 匹配成功 */
+            --danger: #e74c3c;  /* 红色 - 匹配失败 */
+            --accent: #f1c40f;  /* 黄色 - 回溯/高亮 */
+            --text-main: #2c3e50;
+            --text-sub: #7f8c8d;
+            --border: #bdc3c7;
+            --box-size: 40px;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 顶部：输入区域 */
+        header {
+            background-color: var(--card-bg);
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            z-index: 10;
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .input-group label {
+            font-size: 12px;
+            color: var(--text-sub);
+            margin-bottom: 4px;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 16px;
+            width: 250px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+            background-color: var(--primary);
+            color: white;
+        }
+
+        button:disabled {
+            background-color: var(--border);
+            cursor: not-allowed;
+        }
+
+        button.secondary { background-color: var(--text-sub); }
+        button.danger { background-color: var(--danger); }
+
+        /* 中部：主内容区域 (可视化 + 代码) */
+        main {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 左侧：可视化面板 */
+        .viz-panel {
+            flex: 2;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #eef2f5;
+        }
+
+        .viz-container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            width: 90%;
+            min-height: 300px;
+            position: relative;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+
+        /* 字符盒子样式 */
+        .array-row {
+            display: flex;
+            margin-bottom: 10px;
+            position: relative;
+            height: var(--box-size);
+        }
+        
+        .array-label {
+            width: 80px;
+            text-align: right;
+            padding-right: 15px;
+            line-height: var(--box-size);
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .char-box {
+            width: var(--box-size);
+            height: var(--box-size);
+            border: 1px solid var(--border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: monospace;
+            font-size: 18px;
+            background: white;
+            margin-right: 2px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .char-box .idx {
+            position: absolute;
+            top: -15px;
+            font-size: 10px;
+            color: var(--text-sub);
+            border: none;
+        }
+
+        /* 状态高亮类 */
+        .char-box.active { border-color: var(--primary); box-shadow: 0 0 5px var(--primary); z-index: 2; }
+        .char-box.match { background-color: var(--success); color: white; border-color: var(--success); }
+        .char-box.mismatch { background-color: var(--danger); color: white; border-color: var(--danger); }
+        .char-box.partial { background-color: var(--accent); color: black; } /* 用于 Next 计算中的前缀匹配 */
+        .char-box.done { background-color: #dfe6e9; color: #b2bec3; }
+
+        /* 指针标记 */
+        .pointer {
+            position: absolute;
+            bottom: -20px;
+            width: var(--box-size);
+            text-align: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--primary);
+            transition: left 0.3s ease;
+        }
+
+        /* Next 表格特定样式 */
+        #next-table-container {
+            margin-top: 20px;
+            display: none; /* 初始隐藏 */
+        }
+
+        /* 右侧：信息与代码面板 */
+        .info-panel {
+            flex: 1;
+            background: var(--card-bg);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            min-width: 350px;
+            max-width: 450px;
+        }
+
+        .info-header {
+            padding: 15px;
+            background: #f8f9fa;
+            border-bottom: 1px solid var(--border);
+            font-weight: bold;
+        }
+
+        .log-area {
+            padding: 15px;
+            flex: 1;
+            overflow-y: auto;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .log-item {
+            margin-bottom: 8px;
+            padding: 8px;
+            background: #f1f2f6;
+            border-radius: 4px;
+            font-size: 14px;
+            border-left: 3px solid transparent;
+        }
+        .log-item.highlight { border-left-color: var(--primary); background: #ebf5fb; }
+
+        .code-area {
+            padding: 15px;
+            background: #282c34;
+            color: #abb2bf;
+            font-family: monospace;
+            font-size: 13px;
+            overflow: auto;
+            height: 40%;
+        }
+
+        .code-line { padding: 2px 5px; display: block; }
+        .code-line.active { background-color: #3e4451; color: #e5c07b; font-weight: bold; }
+
+        /* 底部控制栏 */
+        .bottom-controls {
+            padding: 10px 20px;
+            background: var(--card-bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .status-bar {
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- 1. 输入与顶部控制 -->
+    <header>
+        <div class="input-group">
+            <label for="text-input">主串 (Text T)</label>
+            <input type="text" id="text-input" value="ABABDABACDABABCABAB" placeholder="输入主文本">
+        </div>
+        <div class="input-group">
+            <label for="pattern-input">模式串 (Pattern P)</label>
+            <input type="text" id="pattern-input" value="ABABCABAB" placeholder="输入模式串">
+        </div>
+        <div class="controls">
+            <button id="btn-gen-next">1. 生成 Next 数组</button>
+            <button id="btn-start-match" disabled>2. 开始匹配</button>
+            <button id="btn-reset" class="danger">重置</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- 2. 可视化区域 -->
+        <div class="viz-panel">
+            <div class="status-bar" id="status-text">准备就绪，请点击“生成 Next 数组”开始。</div>
+            
+            <!-- KMP 匹配视图 -->
+            <div id="match-container" class="viz-container" style="display:none;">
+                <div class="array-row">
+                    <div class="array-label">Text T</div>
+                    <div id="text-row" style="display:flex;"></div>
+                </div>
+                <div class="array-row" id="pattern-wrapper" style="transition: transform 0.3s ease;">
+                    <div class="array-label">Pattern P</div>
+                    <div id="pattern-row" style="display:flex;"></div>
+                </div>
+            </div>
+
+            <!-- Next 数组生成视图 -->
+            <div id="next-gen-container" class="viz-container" style="display:none;">
+                <div class="array-row">
+                    <div class="array-label">Pattern</div>
+                    <div id="next-pattern-row" style="display:flex;"></div>
+                </div>
+                <div class="array-row">
+                    <div class="array-label">Next[]</div>
+                    <div id="next-val-row" style="display:flex;"></div>
+                </div>
+                <div style="margin-top:20px; font-size: 14px; color: var(--text-sub);">
+                    <p>当前比较: P[<span id="next-i-val" style="color:var(--primary)">i</span>] 和 P[<span id="next-len-val" style="color:var(--accent)">len</span>]</p>
+                </div>
+            </div>
+
+            <!-- Next 结果展示 (常驻) -->
+            <div id="next-table-container" class="viz-container" style="min-height: auto; padding: 15px;">
+                <h4 style="margin:0 0 10px 0;">预处理结果 (Next 数组 / LPS)</h4>
+                <div id="static-next-table" style="display:flex; gap:5px; overflow-x:auto;"></div>
+            </div>
+        </div>
+
+        <!-- 3. 信息与代码区域 -->
+        <div class="info-panel">
+            <div class="info-header">算法步骤详解</div>
+            <div class="log-area" id="log-area">
+                <div class="log-item">欢迎！请输入字符串并点击上方按钮开始。</div>
+            </div>
+            <div class="info-header">伪代码跟踪</div>
+            <div class="code-area">
+                <div id="code-next" style="display:none;">
+<span class="code-line" id="ln-n1">function computeNext(P):</span>
+<span class="code-line" id="ln-n2">  next[0] = 0, len = 0</span>
+<span class="code-line" id="ln-n3">  i = 1</span>
+<span class="code-line" id="ln-n4">  while i < P.length:</span>
+<span class="code-line" id="ln-n5">    if P[i] == P[len]:</span>
+<span class="code-line" id="ln-n6">      len++; next[i] = len; i++;</span>
+<span class="code-line" id="ln-n7">    else:</span>
+<span class="code-line" id="ln-n8">      if len != 0:</span>
+<span class="code-line" id="ln-n9">        len = next[len-1]</span>
+<span class="code-line" id="ln-n10">      else:</span>
+<span class="code-line" id="ln-n11">        next[i] = 0; i++</span>
+                </div>
+                <div id="code-match" style="display:none;">
+<span class="code-line" id="ln-m1">function KMP(T, P):</span>
+<span class="code-line" id="ln-m2">  i = 0, j = 0</span>
+<span class="code-line" id="ln-m3">  while i < T.length:</span>
+<span class="code-line" id="ln-m4">    if T[i] == P[j]:</span>
+<span class="code-line" id="ln-m5">      i++; j++;</span>
+<span class="code-line" id="ln-m6">      if j == P.length:</span>
+<span class="code-line" id="ln-m7">        found match at i-j; j = next[j-1]</span>
+<span class="code-line" id="ln-m8">    else: // Mismatch</span>
+<span class="code-line" id="ln-m9">      if j != 0:</span>
+<span class="code-line" id="ln-m10">        j = next[j-1]</span>
+<span class="code-line" id="ln-m11">      else:</span>
+<span class="code-line" id="ln-m12">        i++</span>
+                </div>
+            </div>
+            <div style="padding: 10px; font-size: 12px; color: #7f8c8d; background: #f8f9fa; border-top: 1px solid var(--border);">
+                时间复杂度: 预处理 O(m), 匹配 O(n)。总计 O(m+n)。
+            </div>
+        </div>
+    </main>
+
+    <!-- 4. 底部播放控制 -->
+    <div class="bottom-controls">
+        <div class="controls">
+            <button id="btn-play" class="secondary">自动播放</button>
+            <button id="btn-pause" class="secondary" style="display:none;">暂停</button>
+            <button id="btn-step" class="secondary">下一步 >></button>
+        </div>
+        <div class="slider-container">
+            <label for="speed-slider">速度:</label>
+            <input type="range" id="speed-slider" min="100" max="2000" value="800" style="direction: rtl;">
+            <span>(快 - 慢)</span>
+        </div>
+    </div>
+
+    <script>
+        /* --- 核心逻辑与状态管理 --- */
+        const state = {
+            T: "",
+            P: "",
+            next: [],
+            steps: [], // 存储可视化动作队列
+            currentStepIndex: 0,
+            timer: null,
+            speed: 800,
+            phase: 'idle', // 'idle', 'next_gen', 'matching'
+        };
+
+        // DOM 元素引用
+        const dom = {
+            inputT: document.getElementById('text-input'),
+            inputP: document.getElementById('pattern-input'),
+            btnGenNext: document.getElementById('btn-gen-next'),
+            btnStartMatch: document.getElementById('btn-start-match'),
+            btnReset: document.getElementById('btn-reset'),
+            btnPlay: document.getElementById('btn-play'),
+            btnPause: document.getElementById('btn-pause'),
+            btnStep: document.getElementById('btn-step'),
+            slider: document.getElementById('speed-slider'),
+            log: document.getElementById('log-area'),
+            status: document.getElementById('status-text'),
+            
+            // 容器
+            vizMatch: document.getElementById('match-container'),
+            vizNextGen: document.getElementById('next-gen-container'),
+            vizNextTable: document.getElementById('next-table-container'),
+            
+            // 元素行
+            rowText: document.getElementById('text-row'),
+            rowPattern: document.getElementById('pattern-row'),
+            wrapPattern: document.getElementById('pattern-wrapper'),
+            rowNextPattern: document.getElementById('next-pattern-row'),
+            rowNextVal: document.getElementById('next-val-row'),
+            staticNextTable: document.getElementById('static-next-table'),
+            
+            // 代码块
+            codeNext: document.getElementById('code-next'),
+            codeMatch: document.getElementById('code-match'),
+            
+            // Next 生成指示器
+            valNextI: document.getElementById('next-i-val'),
+            valNextLen: document.getElementById('next-len-val')
+        };
+
+        /* --- 辅助函数：UI 渲染 --- */
+        function clearDOM(element) { element.innerHTML = ''; }
+        
+        function createBox(char, index, idPrefix) {
+            const box = document.createElement('div');
+            box.className = 'char-box';
+            box.id = `${idPrefix}-${index}`;
+            box.textContent = char;
+            
+            const idx = document.createElement('span');
+            idx.className = 'idx';
+            idx.textContent = index;
+            box.appendChild(idx);
+            return box;
+        }
+
+        function log(msg, isHighlight = false) {
+            const div = document.createElement('div');
+            div.className = `log-item ${isHighlight ? 'highlight' : ''}`;
+            div.innerHTML = msg;
+            dom.log.prepend(div); // 最新消息在最上
+        }
+
+        function highlightLine(codeBlockId, lineIds) {
+            // 清除旧高亮
+            document.querySelectorAll(`#${codeBlockId} .code-line`).forEach(el => el.classList.remove('active'));
+            // 添加新高亮
+            if (lineIds) {
+                lineIds.forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) el.classList.add('active');
+                });
+            }
+        }
+
+        function resetVisuals() {
+            state.steps = [];
+            state.currentStepIndex = 0;
+            state.phase = 'idle';
+            stopAutoPlay();
+            
+            dom.vizMatch.style.display = 'none';
+            dom.vizNextGen.style.display = 'none';
+            dom.vizNextTable.style.display = 'none';
+            dom.codeNext.style.display = 'none';
+            dom.codeMatch.style.display = 'none';
+            
+            dom.btnStartMatch.disabled = true;
+            dom.btnGenNext.disabled = false;
+            dom.inputT.disabled = false;
+            dom.inputP.disabled = false;
+            
+            dom.log.innerHTML = '';
+            dom.status.textContent = "已重置。";
+            
+            // 清空样式
+            dom.wrapPattern.style.transform = `translateX(0px)`;
+        }
+
+        /* --- 算法逻辑：生成 Next 数组 (预计算步骤) --- */
+        function generateNextSteps() {
+            const P = state.P;
+            const steps = [];
+            const next = [0]; // next[0] is always 0
+            let len = 0;
+            let i = 1;
+
+            // 初始状态
+            steps.push({ type: 'init', len: 0, i: 1, nextArr: [...next], line: ['ln-n2', 'ln-n3'] });
+
+            while (i < P.length) {
+                steps.push({ type: 'compare', i, len, line: ['ln-n4', 'ln-n5'] });
+                
+                if (P[i] === P[len]) {
+                    len++;
+                    next[i] = len;
+                    steps.push({ type: 'match', i, len, val: len, line: ['ln-n6'] });
+                    i++;
+                } else {
+                    steps.push({ type: 'mismatch', i, len, line: ['ln-n7'] });
+                    if (len !== 0) {
+                        len = next[len - 1];
+                        steps.push({ type: 'backtrack', i, len, line: ['ln-n8', 'ln-n9'] });
+                    } else {
+                        next[i] = 0;
+                        steps.push({ type: 'set_zero', i, val: 0, line: ['ln-n10', 'ln-n11'] });
+                        i++;
+                    }
+                }
+            }
+            steps.push({ type: 'finish', nextArr: [...next] });
+            return { next, steps };
+        }
+
+        /* --- 算法逻辑：KMP 匹配 (预计算步骤) --- */
+        function generateMatchSteps() {
+            const T = state.T;
+            const P = state.P;
+            const next = state.next;
+            const steps = [];
+            let i = 0;
+            let j = 0;
+
+            steps.push({ type: 'init', i:0, j:0, line: ['ln-m2'] });
+
+            while (i < T.length) {
+                steps.push({ type: 'compare', i, j, line: ['ln-m3', 'ln-m4'] });
+
+                if (T[i] === P[j]) {
+                    steps.push({ type: 'match', i, j, line: ['ln-m5'] });
+                    i++;
+                    j++;
+                    if (j === P.length) {
+                        steps.push({ type: 'found', index: i - j, line: ['ln-m6', 'ln-m7'] });
+                        j = next[j - 1];
+                        steps.push({ type: 'shift', j, line: ['ln-m7'] });
+                    }
+                } else {
+                    // Mismatch
+                    if (j !== 0) {
+                        steps.push({ type: 'mismatch_j', i, j, line: ['ln-m8', 'ln-m9'] });
+                        j = next[j - 1];
+                        steps.push({ type: 'shift', j, line: ['ln-m10'] });
+                    } else {
+                        steps.push({ type: 'mismatch_0', i, j, line: ['ln-m11'] });
+                        i++;
+                        steps.push({ type: 'advance_i', i, line: ['ln-m12'] });
+                    }
+                }
+            }
+            steps.push({ type: 'finish_match' });
+            return steps;
+        }
+
+        /* --- 渲染执行器 --- */
+        function executeNextStep(step) {
+            // 清除所有临时高亮
+            document.querySelectorAll('.viz-panel .active, .viz-panel .match, .viz-panel .mismatch, .viz-panel .partial').forEach(el => {
+                el.classList.remove('active', 'match', 'mismatch', 'partial');
+            });
+
+            dom.valNextI.textContent = step.i !== undefined ? step.i : '-';
+            dom.valNextLen.textContent = step.len !== undefined ? step.len : '-';
+            highlightLine('code-next', step.line);
+
+            // 高亮 i 和 len
+            if (step.i !== undefined && step.i < state.P.length) 
+                document.getElementById(`n-p-${step.i}`).classList.add('active');
+            if (step.len !== undefined && step.len < state.P.length) 
+                document.getElementById(`n-p-${step.len}`).classList.add('partial');
+
+            // 填充 Next 值
+            if (step.nextArr) {
+                step.nextArr.forEach((val, idx) => {
+                    const box = document.getElementById(`n-v-${idx}`);
+                    if(box) box.textContent = val;
+                });
+            }
+            
+            // 刚填入具体值时的动画
+            if (step.val !== undefined && step.i !== undefined) {
+                 // i 还没 ++，如果是 match 后的 i 这里是原始 i
+                 // 实际上 step.i 在 match 时是旧值，在 set_zero 是旧值
+                 // 修正：在 match/set_zero 步骤中，我们高亮刚刚填入的那个格子
+                 const targetIdx = (step.type === 'match' || step.type === 'set_zero') ? step.i : step.i; 
+                 const box = document.getElementById(`n-v-${targetIdx}`);
+                 if(box) {
+                     box.textContent = step.val;
+                     box.classList.add('done');
+                 }
+            }
+
+            switch(step.type) {
+                case 'compare':
+                    log(`比较 P[${step.i}] ('${state.P[step.i]}') 和 P[${step.len}] ('${state.P[step.len]}')`);
+                    break;
+                case 'match':
+                    document.getElementById(`n-p-${step.i}`).classList.add('match');
+                    document.getElementById(`n-p-${step.len}`).classList.add('match');
+                    log(`匹配成功! Next[${step.i}] = ${step.val}. len 自增, i 自增.`);
+                    break;
+                case 'mismatch':
+                    document.getElementById(`n-p-${step.i}`).classList.add('mismatch');
+                    document.getElementById(`n-p-${step.len}`).classList.add('mismatch');
+                    log(`匹配失败.`);
+                    break;
+                case 'backtrack':
+                    log(`len不为0，回溯 len = Next[${step.len}-1] = ${state.next[step.len-1]}`);
+                    break;
+                case 'set_zero':
+                    document.getElementById(`n-p-${step.i}`).classList.add('mismatch');
+                    log(`len为0，Next[${step.i}] = 0. i 自增.`);
+                    break;
+                case 'finish':
+                    log(`<strong>Next 数组生成完毕。</strong>`, true);
+                    dom.status.textContent = "Next 数组生成完毕，请点击“开始匹配”。";
+                    dom.btnStartMatch.disabled = false;
+                    renderStaticNextTable();
+                    stopAutoPlay();
+                    break;
+            }
+        }
+
+        function executeMatchStep(step) {
+            // 清理高亮
+            document.querySelectorAll('#match-container .char-box').forEach(el => {
+                el.classList.remove('active', 'match', 'mismatch');
+            });
+
+            highlightLine('code-match', step.line);
+
+            // 计算位移: pattern 应该移动到 i - j 的位置
+            // 因为我们用 flex 布局，pattern 行相对于 text 行左对齐。
+            // P[0] 对应 T[current_offset]。当前 offset = i - j。
+            // 使用 transform: translateX
+            let offset = 0;
+            if (step.i !== undefined && step.j !== undefined) {
+                 offset = (step.i - step.j) * 42; // 40px width + 2px margin
+            } else if (step.j !== undefined) {
+                // shift 阶段，i 没变，但 j 变了，算出新的 offset
+                // 但此时 step 对象里没有 i。我们需要从 state 或 上下文推断吗？
+                // 为了简单，MatchSteps 生成时应该带上 i。
+                // 重新检查 generateMatchSteps: shift 事件只有 j。
+                // 我们需要记录当前的 global i。或者在 step 数据里带上 i。
+                // 修正 generateMatchSteps: 确保 shift 时带上当前的 i。
+            }
+
+            // 简单的对齐逻辑：
+            // 我们在 step 里需要确保 i 和 j 总是可用的，或者我们维护一个 rendering state
+            const currentI = (step.i !== undefined) ? step.i : state.lastI;
+            const currentJ = (step.j !== undefined) ? step.j : state.lastJ;
+            
+            // 保存以便下次使用
+            state.lastI = currentI;
+            state.lastJ = currentJ;
+
+            const pxOffset = (currentI - currentJ) * 42;
+            dom.wrapPattern.style.transform = `translateX(${pxOffset}px)`;
+
+            // 高亮指针
+            if(currentI < state.T.length) document.getElementById(`t-${currentI}`).classList.add('active');
+            if(currentJ < state.P.length) document.getElementById(`p-${currentJ}`).classList.add('active');
+
+            switch (step.type) {
+                case 'compare':
+                    log(`比较 T[${step.i}] ('${state.T[step.i]}') 与 P[${step.j}] ('${state.P[step.j]}')`);
+                    break;
+                case 'match':
+                    document.getElementById(`t-${step.i}`).classList.add('match');
+                    document.getElementById(`p-${step.j}`).classList.add('match');
+                    log(`匹配成功! i++, j++`, true);
+                    break;
+                case 'mismatch_j':
+                    document.getElementById(`t-${step.i}`).classList.add('mismatch');
+                    document.getElementById(`p-${step.j}`).classList.add('mismatch');
+                    log(`失配. P[${step.j}] != T[${step.i}]. j != 0, 准备回溯.`);
+                    break;
+                case 'mismatch_0':
+                    document.getElementById(`t-${step.i}`).classList.add('mismatch');
+                    document.getElementById(`p-${step.j}`).classList.add('mismatch');
+                    log(`失配且 j=0. 只能移动主串指针 i++.`);
+                    break;
+                case 'shift':
+                    log(`根据 Next 数组，j 回溯到 Next[${step.j}-1] = ${step.j}. 模式串右移.`);
+                    // 指针已经在上面更新了，这里主要为了显示动画和日志
+                    break;
+                case 'advance_i':
+                    log(`i 向前移动.`);
+                    break;
+                case 'found':
+                    log(`<strong>在索引 ${step.index} 处找到完整匹配!</strong>`, true);
+                    // 标记结果
+                    for(let k=0; k<state.P.length; k++) {
+                        document.getElementById(`t-${step.index + k}`).style.backgroundColor = '#d4edda';
+                        document.getElementById(`t-${step.index + k}`).style.borderColor = '#28a745';
+                    }
+                    break;
+                case 'finish_match':
+                    log(`<strong>匹配过程结束。</strong>`);
+                    dom.status.textContent = "匹配结束。";
+                    stopAutoPlay();
+                    break;
+            }
+        }
+
+        /* --- 初始化与事件绑定 --- */
+        
+        function initNextGen() {
+            state.T = dom.inputT.value.trim();
+            state.P = dom.inputP.value.trim();
+            if(!state.P) return alert("请输入模式串");
+
+            resetVisuals();
+            state.phase = 'next_gen';
+            dom.vizNextGen.style.display = 'block';
+            dom.codeNext.style.display = 'block';
+            dom.inputT.disabled = true;
+            dom.inputP.disabled = true;
+
+            // 构建 DOM
+            clearDOM(dom.rowNextPattern);
+            clearDOM(dom.rowNextVal);
+            
+            for(let i=0; i<state.P.length; i++) {
+                dom.rowNextPattern.appendChild(createBox(state.P[i], i, 'n-p'));
+                dom.rowNextVal.appendChild(createBox('', i, 'n-v'));
+            }
+            document.getElementById('n-v-0').textContent = '0'; // Next[0] 恒为 0
+
+            // 计算步骤
+            const result = generateNextSteps();
+            state.next = result.next;
+            state.steps = result.steps;
+            
+            log("开始生成 Next 数组...");
+        }
+
+        function initMatch() {
+            state.phase = 'matching';
+            dom.vizMatch.style.display = 'block';
+            dom.vizNextGen.style.display = 'none'; // 隐藏 Next 生成区，节省空间
+            dom.codeNext.style.display = 'none';
+            dom.codeMatch.style.display = 'block';
+            dom.vizNextTable.style.display = 'block'; // 确保 Next 表格可见
+
+            // 构建 DOM
+            clearDOM(dom.rowText);
+            clearDOM(dom.rowPattern);
+            
+            for(let i=0; i<state.T.length; i++) {
+                dom.rowText.appendChild(createBox(state.T[i], i, 't'));
+            }
+            for(let i=0; i<state.P.length; i++) {
+                dom.rowPattern.appendChild(createBox(state.P[i], i, 'p'));
+            }
+
+            // 计算步骤
+            state.steps = generateMatchSteps();
+            state.currentStepIndex = 0;
+            state.lastI = 0;
+            state.lastJ = 0; // 重置辅助状态
+
+            log("开始 KMP 匹配...");
+            dom.status.textContent = "正在匹配...";
+        }
+
+        function renderStaticNextTable() {
+            dom.vizNextTable.style.display = 'block';
+            clearDOM(dom.staticNextTable);
+            
+            // 表头
+            const colHeader = document.createElement('div');
+            colHeader.style.display = 'flex';
+            colHeader.style.flexDirection = 'column';
+            colHeader.style.marginRight = '10px';
+            colHeader.innerHTML = `
+                <div class="char-box" style="border:none; font-weight:bold; background:transparent;">Index</div>
+                <div class="char-box" style="border:none; font-weight:bold; background:transparent;">Char</div>
+                <div class="char-box" style="border:none; font-weight:bold; background:transparent;">Next</div>
+            `;
+            dom.staticNextTable.appendChild(colHeader);
+
+            for(let i=0; i<state.P.length; i++) {
+                const col = document.createElement('div');
+                col.style.display = 'flex';
+                col.style.flexDirection = 'column';
+                col.innerHTML = `
+                    <div class="char-box" style="height:25px; font-size:12px; border:none; background:transparent;">${i}</div>
+                    <div class="char-box">${state.P[i]}</div>
+                    <div class="char-box" style="background:#f8f9fa; color:var(--primary); font-weight:bold;">${state.next[i]}</div>
+                `;
+                dom.staticNextTable.appendChild(col);
+            }
+        }
+
+        function handleStep() {
+            if (state.currentStepIndex >= state.steps.length) return;
+            
+            const step = state.steps[state.currentStepIndex];
+            
+            if (state.phase === 'next_gen') {
+                executeNextStep(step);
+            } else if (state.phase === 'matching') {
+                executeMatchStep(step);
+            }
+
+            state.currentStepIndex++;
+        }
+
+        /* --- 播放控制 --- */
+        function startAutoPlay() {
+            if (state.timer) return;
+            dom.btnPlay.style.display = 'none';
+            dom.btnPause.style.display = 'inline-block';
+            dom.btnStep.disabled = true;
+            
+            state.timer = setInterval(() => {
+                if (state.currentStepIndex >= state.steps.length) {
+                    stopAutoPlay();
+                } else {
+                    handleStep();
+                }
+            }, state.speed);
+        }
+
+        function stopAutoPlay() {
+            if (state.timer) {
+                clearInterval(state.timer);
+                state.timer = null;
+            }
+            dom.btnPlay.style.display = 'inline-block';
+            dom.btnPause.style.display = 'none';
+            dom.btnStep.disabled = false;
+        }
+
+        /* --- 事件监听 --- */
+        dom.btnGenNext.addEventListener('click', initNextGen);
+        dom.btnStartMatch.addEventListener('click', initMatch);
+        dom.btnStep.addEventListener('click', handleStep);
+        dom.btnPlay.addEventListener('click', startAutoPlay);
+        dom.btnPause.addEventListener('click', stopAutoPlay);
+        dom.btnReset.addEventListener('click', resetVisuals);
+        
+        dom.slider.addEventListener('input', (e) => {
+            // 滑块值越大，速度越慢 (interval 越大)
+            // 或者是 UI 显示 "快 - 慢"
+            // 这里做了 direction rtl, 左边大右边小，
+            // 实际上 input range: min=100(0.1s), max=2000(2s).
+            state.speed = parseInt(e.target.value);
+            if (state.timer) {
+                stopAutoPlay();
+                startAutoPlay();
+            }
+        });
+
+    </script>
+</body>
+</html>
