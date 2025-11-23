@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哈夫曼树构建可视化 (Huffman Tree Visualizer)</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --panel-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --accent-color: #4caf50;
+            --highlight-color: #ff9800;
+            --node-leaf: #2196f3;
+            --node-internal: #9c27b0;
+            --border-color: #444;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        header {
+            background-color: var(--panel-bg);
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 { margin: 0; font-size: 1.2rem; }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left Panel: Input & Controls */
+        .left-panel {
+            width: 280px;
+            background-color: var(--panel-bg);
+            border-right: 1px solid var(--border-color);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label { font-size: 0.9rem; color: #aaa; }
+        
+        textarea {
+            background: #333;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: monospace;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-weight: bold;
+        }
+
+        button:hover { filter: brightness(1.1); }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        button.secondary { background-color: #555; }
+        button.secondary:hover { background-color: #666; }
+
+        .slider-container { display: flex; align-items: center; gap: 10px; }
+        input[type="range"] { flex: 1; }
+
+        /* Center Panel: Visualization */
+        .center-panel {
+            flex: 1;
+            position: relative;
+            background-color: #121212;
+            overflow: hidden; /* Zoom/Pan could be added here */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #viz-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+
+        .viz-info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+
+        /* Right Panel: Heap, Code, Results */
+        .right-panel {
+            width: 320px;
+            background-color: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .panel-section {
+            padding: 15px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-section h3 { margin-top: 0; font-size: 1rem; border-bottom: 2px solid var(--accent-color); display: inline-block; padding-bottom: 4px; }
+
+        /* Min-Heap Visualization */
+        .heap-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .heap-node {
+            background: #444;
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            border: 1px solid #555;
+            transition: all 0.3s;
+        }
+
+        .heap-node.highlight {
+            background-color: var(--highlight-color);
+            color: #000;
+            transform: scale(1.1);
+            font-weight: bold;
+        }
+
+        /* Pseudocode */
+        .code-block {
+            background: #000;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        .code-line { padding: 2px 4px; }
+        .code-line.active { background-color: #333; color: var(--accent-color); font-weight: bold; border-left: 3px solid var(--accent-color); }
+
+        /* Result Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th, td { text-align: left; padding: 6px; border-bottom: 1px solid #444; }
+        th { color: var(--accent-color); }
+
+        /* SVG Styles */
+        svg { width: 100%; height: 100%; }
+        .node-group { transition: transform 0.5s ease; }
+        
+        .node-shape { stroke: #fff; stroke-width: 2px; transition: fill 0.3s; }
+        .leaf .node-shape { fill: var(--node-leaf); }
+        .internal .node-shape { fill: var(--node-internal); }
+        .processing .node-shape { fill: var(--highlight-color); stroke: red; }
+
+        .node-text { fill: white; font-size: 14px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; font-weight: bold; }
+        .node-subtext { fill: #ddd; font-size: 10px; text-anchor: middle; pointer-events: none; }
+        
+        .edge { stroke: #888; stroke-width: 2px; transition: stroke 0.3s; }
+        .edge-label { fill: #aaa; font-size: 12px; }
+
+        /* Log area */
+        #log-text {
+            color: var(--highlight-color);
+            font-weight: bold;
+            min-height: 2.4em;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>哈夫曼树构造可视化 (Huffman Tree Visualizer)</h1>
+    <div>
+        <a href="#" style="color: #aaa; text-decoration: none; font-size: 0.9rem;">算法学习工具</a>
+    </div>
+</header>
+
+<div class="main-container">
+    <!-- Left Panel: Inputs -->
+    <div class="left-panel">
+        <div class="control-group">
+            <label for="data-input">字符频率输入 (格式: 字符:频率)</label>
+            <textarea id="data-input" rows="5">A: 5, B: 9, C: 12, D: 13, E: 16, F: 45</textarea>
+            <div style="display: flex; gap: 5px;">
+                <button class="secondary" onclick="loadPreset(1)">经典案例</button>
+                <button class="secondary" onclick="loadPreset(2)">不平衡案例</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <button onclick="init()" id="btn-init">1. 初始化 (Initialize)</button>
+        </div>
+
+        <div class="control-group">
+            <label>播放控制</label>
+            <div style="display: flex; gap: 5px;">
+                <button onclick="stepBackward()" id="btn-prev" disabled>上一步</button>
+                <button onclick="stepForward()" id="btn-next" disabled>下一步</button>
+            </div>
+            <button onclick="toggleAutoPlay()" id="btn-auto" disabled>自动播放 / 暂停</button>
+            <button class="secondary" onclick="reset()">重置 (Reset)</button>
+        </div>
+
+        <div class="control-group">
+            <label>动画速度 (ms)</label>
+            <div class="slider-container">
+                <span>快</span>
+                <input type="range" id="speed-range" min="100" max="2000" value="800" step="100">
+                <span>慢</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Center Panel: Visualization -->
+    <div class="center-panel">
+        <div class="viz-info">
+            <div id="log-text">请点击“初始化”开始...</div>
+        </div>
+        <div id="viz-canvas">
+            <!-- SVG content will be injected here -->
+        </div>
+    </div>
+
+    <!-- Right Panel: Info -->
+    <div class="right-panel">
+        <!-- Min Heap View -->
+        <div class="panel-section">
+            <h3>最小优先队列 (Min-Heap)</h3>
+            <div id="heap-view" class="heap-list">
+                <span style="color: #666;">(空)</span>
+            </div>
+        </div>
+
+        <!-- Pseudocode -->
+        <div class="panel-section">
+            <h3>算法伪代码</h3>
+            <div class="code-block">
+                <div class="code-line" id="code-1">Q = InitPriorityQueue(Chars)</div>
+                <div class="code-line" id="code-2">while Q.size() > 1:</div>
+                <div class="code-line" id="code-3">&nbsp;&nbsp;left = Q.extractMin()</div>
+                <div class="code-line" id="code-4">&nbsp;&nbsp;right = Q.extractMin()</div>
+                <div class="code-line" id="code-5">&nbsp;&nbsp;node = new Node(left.freq + right.freq)</div>
+                <div class="code-line" id="code-6">&nbsp;&nbsp;node.left = left, node.right = right</div>
+                <div class="code-line" id="code-7">&nbsp;&nbsp;Q.insert(node)</div>
+                <div class="code-line" id="code-8">return Q.extractMin() // Root</div>
+            </div>
+        </div>
+
+        <!-- Result Table -->
+        <div class="panel-section">
+            <h3>哈夫曼编码结果</h3>
+            <table id="result-table">
+                <thead>
+                    <tr>
+                        <th>字符</th>
+                        <th>频率</th>
+                        <th>编码</th>
+                        <th>长度</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Rows generated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * Data Structures and Logic
+ */
+
+class Node {
+    constructor(char, freq, id) {
+        this.char = char; // Null for internal nodes
+        this.freq = freq;
+        this.id = id; // Unique ID for DOM tracking
+        this.left = null;
+        this.right = null;
+        this.x = 0; // For visualization
+        this.y = 0;
+        this.code = ''; // Final huffman code
+    }
+    
+    isLeaf() {
+        return !this.left && !this.right;
+    }
+}
+
+// Steps Recorder
+let steps = [];
+let currentStepIndex = -1;
+let globalNodeId = 0;
+let initialNodes = [];
+let animationTimer = null;
+
+// UI Elements
+const canvas = document.getElementById('viz-canvas');
+const logText = document.getElementById('log-text');
+const heapView = document.getElementById('heap-view');
+const resultTableBody = document.querySelector('#result-table tbody');
+const btnInit = document.getElementById('btn-init');
+const btnPrev = document.getElementById('btn-prev');
+const btnNext = document.getElementById('btn-next');
+const btnAuto = document.getElementById('btn-auto');
+const speedRange = document.getElementById('speed-range');
+
+// Presets
+function loadPreset(type) {
+    const input = document.getElementById('data-input');
+    if (type === 1) {
+        input.value = "A: 5, B: 9, C: 12, D: 13, E: 16, F: 45";
+    } else {
+        input.value = "A: 100, B: 1, C: 1, D: 1, E: 1";
+    }
+}
+
+function parseInput() {
+    const raw = document.getElementById('data-input').value;
+    const items = raw.split(/[,，\n]+/).filter(s => s.trim().length > 0);
+    const nodes = [];
+    globalNodeId = 0;
+
+    items.forEach(item => {
+        const parts = item.split(/[:：]/);
+        if (parts.length === 2) {
+            const char = parts[0].trim();
+            const freq = parseInt(parts[1].trim());
+            if (!isNaN(freq)) {
+                nodes.push(new Node(char, freq, `n-${globalNodeId++}`));
+            }
+        }
+    });
+    return nodes;
+}
+
+// Logic: Generate the sequence of operations (Simulation)
+function generateHuffmanSteps(startNodes) {
+    // Deep copy for simulation
+    let forest = startNodes.map(n => {
+        // Create a clone with structure
+        let newNode = new Node(n.char, n.freq, n.id);
+        return newNode;
+    });
+
+    let stepsLog = [];
+
+    // Step 0: Initial State
+    stepsLog.push({
+        forest: JSON.parse(JSON.stringify(forest)), // Snapshot
+        heap: forest.map(n => n.id),
+        highlight: [],
+        msg: "初始化：将所有字符节点放入优先队列。",
+        codeLine: 'code-1',
+        action: 'init'
+    });
+
+    // Helper to find min in current simulation forest
+    const extractMin = (currentForest) => {
+        // Filter only roots (nodes that don't have a parent is tricky in flat list, 
+        // easier to just maintain a list of current roots)
+        // In this simulation logic, 'forest' array will only contain current roots.
+        if (currentForest.length === 0) return null;
+        
+        // Sort by freq (asc), then by char/id for stability
+        currentForest.sort((a, b) => {
+            if (a.freq !== b.freq) return a.freq - b.freq;
+            return a.id.localeCompare(b.id); // Stability
+        });
+        
+        return currentForest.shift(); // Remove first
+    };
+
+    // Simulation Loop
+    let currentRoots = [...forest]; // Works as our Priority Queue
+
+    while (currentRoots.length > 1) {
+        // 1. Identify two smallest
+        // Need to sort to find them visually
+        currentRoots.sort((a, b) => a.freq - b.freq || a.id.localeCompare(b.id));
+        
+        const left = currentRoots[0];
+        const right = currentRoots[1];
+
+        // Step: Highlight them
+        stepsLog.push({
+            forest: JSON.parse(JSON.stringify(currentRoots)),
+            heap: currentRoots.map(n => n.id),
+            highlight: [left.id, right.id],
+            msg: `发现最小的两个节点: [${left.char || 'Internal'}:${left.freq}] 和 [${right.char || 'Internal'}:${right.freq}]`,
+            codeLine: 'code-3', // covers 3 & 4
+            action: 'highlight'
+        });
+
+        // 2. Merge
+        const newFreq = left.freq + right.freq;
+        const newNode = new Node(null, newFreq, `n-${globalNodeId++}`);
+        newNode.left = left;
+        newNode.right = right;
+
+        // Remove left and right from roots, add newNode
+        currentRoots = currentRoots.slice(2);
+        currentRoots.push(newNode);
+        
+        // Sort again for visualization logic (strictly logic wise not needed but good for display)
+        currentRoots.sort((a, b) => a.freq - b.freq || a.id.localeCompare(b.id));
+
+        // Step: Show Merge Result
+        stepsLog.push({
+            forest: JSON.parse(JSON.stringify(currentRoots)),
+            heap: currentRoots.map(n => n.id),
+            highlight: [newNode.id],
+            msg: `合并节点: 创建新节点 (频率 ${newFreq})，插入回队列。`,
+            codeLine: 'code-7',
+            action: 'merge'
+        });
+    }
+
+    // Final Step: Done
+    const root = currentRoots[0];
+    stepsLog.push({
+        forest: [JSON.parse(JSON.stringify(root))],
+        heap: [root.id],
+        highlight: [root.id],
+        msg: "构造完成！整棵树已生成。",
+        codeLine: 'code-8',
+        action: 'done',
+        finalTree: root // Store full tree for encoding generation
+    });
+
+    return stepsLog;
+}
+
+/**
+ * Visualization & Rendering
+ */
+
+function init() {
+    initialNodes = parseInput();
+    if (initialNodes.length < 2) {
+        alert("请至少输入两个字符及其频率。");
+        return;
+    }
+
+    steps = generateHuffmanSteps(initialNodes);
+    currentStepIndex = 0;
+    
+    // Enable buttons
+    btnInit.disabled = true;
+    btnNext.disabled = false;
+    btnPrev.disabled = true;
+    btnAuto.disabled = false;
+    document.getElementById('data-input').disabled = true;
+
+    renderStep(0);
+    renderTable(null); // Clear table
+}
+
+function reset() {
+    stopAutoPlay();
+    currentStepIndex = -1;
+    steps = [];
+    canvas.innerHTML = '';
+    heapView.innerHTML = '<span style="color: #666;">(空)</span>';
+    logText.textContent = '准备就绪...';
+    resultTableBody.innerHTML = '';
+    
+    // Reset UI state
+    btnInit.disabled = false;
+    btnNext.disabled = true;
+    btnPrev.disabled = true;
+    btnAuto.disabled = true;
+    document.getElementById('data-input').disabled = false;
+    
+    // Clear code highlights
+    document.querySelectorAll('.code-line').forEach(el => el.classList.remove('active'));
+}
+
+function stepForward() {
+    if (currentStepIndex < steps.length - 1) {
+        currentStepIndex++;
+        renderStep(currentStepIndex);
+        updateButtons();
+    } else {
+        stopAutoPlay();
+    }
+}
+
+function stepBackward() {
+    if (currentStepIndex > 0) {
+        currentStepIndex--;
+        renderStep(currentStepIndex);
+        updateButtons();
+    }
+}
+
+function updateButtons() {
+    btnPrev.disabled = currentStepIndex <= 0;
+    btnNext.disabled = currentStepIndex >= steps.length - 1;
+}
+
+let autoPlayInterval;
+function toggleAutoPlay() {
+    if (autoPlayInterval) {
+        stopAutoPlay();
+    } else {
+        startAutoPlay();
+    }
+}
+
+function startAutoPlay() {
+    const speed = parseInt(speedRange.value);
+    btnAuto.textContent = "暂停 (Pause)";
+    
+    // If at end, restart
+    if (currentStepIndex >= steps.length - 1) {
+        currentStepIndex = 0;
+        renderStep(0);
+    }
+
+    autoPlayInterval = setInterval(() => {
+        if (currentStepIndex < steps.length - 1) {
+            stepForward();
+        } else {
+            stopAutoPlay();
+        }
+    }, speed);
+}
+
+function stopAutoPlay() {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+    btnAuto.textContent = "自动构造 / 暂停";
+}
+
+// Main Render Function
+function renderStep(index) {
+    const step = steps[index];
+    const svgNS = "http://www.w3.org/2000/svg";
+    
+    // 1. Update Log
+    logText.textContent = `Step ${index + 1}/${steps.length}: ${step.msg}`;
+    
+    // 2. Highlight Code
+    document.querySelectorAll('.code-line').forEach(el => el.classList.remove('active'));
+    if (step.codeLine) {
+        document.getElementById(step.codeLine).classList.add('active');
+    }
+
+    // 3. Render Heap (List view)
+    heapView.innerHTML = '';
+    // The 'forest' in the step contains the current roots, which form the heap
+    // We need to sort them by freq to display the "Priority Queue" correctly
+    let heapNodes = [...step.forest].sort((a, b) => a.freq - b.freq);
+    
+    heapNodes.forEach(node => {
+        const div = document.createElement('div');
+        div.className = 'heap-node';
+        if (step.highlight.includes(node.id)) {
+            div.classList.add('highlight');
+        }
+        const label = node.char ? node.char : `*${node.freq}`;
+        div.textContent = `${label} : ${node.freq}`;
+        heapView.appendChild(div);
+    });
+
+    // 4. Render Canvas (Forest of Trees)
+    // Need to calculate positions.
+    // Strategy: Place trees side by side centered.
+    canvas.innerHTML = ''; // Clear SVG
+    
+    const svg = document.createElementNS(svgNS, "svg");
+    // Basic pan/zoom setup (static for now)
+    const gMain = document.createElementNS(svgNS, "g");
+    gMain.setAttribute("transform", "translate(0, 40)"); // padding top
+    svg.appendChild(gMain);
+    canvas.appendChild(svg);
+
+    const containerWidth = canvas.clientWidth;
+    
+    // Layout Algorithm:
+    // Assign X coordinates based on inorder traversal logic, but simpler:
+    // Just give each tree in the forest a specific width.
+    
+    let totalWidth = 0;
+    const treeGaps = 40;
+    const nodeRadius = 20;
+    const levelHeight = 60;
+
+    // Calculate width required for each root's tree
+    const getTreeWidth = (node) => {
+        if (!node) return 0;
+        if (node.isLeaf && !node.left && !node.right) return nodeRadius * 2 + 10;
+        // Check if it's a leaf node in structure logic
+        if (!node.left && !node.right) return nodeRadius * 2 + 10;
+        return getTreeWidth(node.left) + getTreeWidth(node.right) + 10;
+    };
+
+    // Map roots to x positions
+    let currentX = 0;
+    const positions = new Map(); // node.id -> {x, y}
+
+    // We want to center the whole forest
+    const forestWidths = step.forest.map(root => getTreeWidth(root));
+    const totalForestWidth = forestWidths.reduce((a,b) => a+b, 0) + (step.forest.length - 1) * treeGaps;
+    let startX = (containerWidth - totalForestWidth) / 2;
+    if (startX < 20) startX = 20; // Min padding
+
+    // Recursive drawing
+    const drawTree = (node, x, y, parentX, parentY) => {
+        positions.set(node.id, {x, y});
+
+        // Draw Edges first (so they are behind)
+        if (parentX !== null) {
+            const line = document.createElementNS(svgNS, "line");
+            line.setAttribute("x1", parentX);
+            line.setAttribute("y1", parentY + nodeRadius); // Bottom of parent
+            line.setAttribute("x2", x);
+            line.setAttribute("y2", y - nodeRadius); // Top of child
+            line.setAttribute("class", "edge");
+            gMain.appendChild(line);
+
+            // Edge Label (0 or 1)
+            const midX = (parentX + x) / 2;
+            const midY = (parentY + y) / 2;
+            const text = document.createElementNS(svgNS, "text");
+            text.setAttribute("x", midX);
+            text.setAttribute("y", midY);
+            text.setAttribute("class", "edge-text edge-label");
+            text.textContent = (x < parentX) ? "0" : "1";
+            gMain.appendChild(text);
+        }
+
+        // Recursive calls
+        if (node.left) {
+            const leftWidth = getTreeWidth(node.left);
+            const rightWidth = getTreeWidth(node.right);
+            // Position children centered under their allotted width relative to parent
+            // This is a simplification. Better is:
+            // Parent X is weighted average of children X? 
+            // Simple approach: Split available width based on children size
+            
+            // Actually, since we computed widths bottom up:
+            // The parent x should be centered between children.
+            // But here we are passing X down.
+            // Let's re-approach: Assign relative coordinates (local) then shift.
+        }
+    };
+
+    // REVISED Layout: Calculate precise X for every node first
+    const calculatePositions = (node, leftOffset, depth) => {
+        if (!node) return;
+        
+        const myWidth = getTreeWidth(node);
+        
+        // If leaf
+        if (!node.left && !node.right) {
+            node.x = leftOffset + myWidth / 2;
+            node.y = depth * levelHeight;
+        } else {
+            const leftW = getTreeWidth(node.left);
+            const rightW = getTreeWidth(node.right);
+            
+            calculatePositions(node.left, leftOffset, depth + 1);
+            calculatePositions(node.right, leftOffset + leftW + 10, depth + 1); // +10 for gap inside tree
+            
+            // Parent x is average of children x
+            node.x = (node.left.x + node.right.x) / 2;
+            node.y = depth * levelHeight;
+        }
+    };
+
+    // Calculate positions for all trees in forest
+    let currentOffsetX = startX;
+    step.forest.forEach((root, i) => {
+        calculatePositions(root, currentOffsetX, 0);
+        currentOffsetX += getTreeWidth(root) + treeGaps;
+    });
+
+    // Draw nodes
+    const renderNodeRecursive = (node) => {
+        if (!node) return;
+        
+        // Draw edges
+        if (node.left) {
+            const line = document.createElementNS(svgNS, "line");
+            line.setAttribute("x1", node.x);
+            line.setAttribute("y1", node.y);
+            line.setAttribute("x2", node.left.x);
+            line.setAttribute("y2", node.left.y);
+            line.setAttribute("class", "edge");
+            gMain.appendChild(line);
+            
+            const txt = document.createElementNS(svgNS, "text");
+            txt.setAttribute("x", (node.x + node.left.x)/2 - 5);
+            txt.setAttribute("y", (node.y + node.left.y)/2);
+            txt.setAttribute("class", "edge-label");
+            txt.textContent = "0";
+            gMain.appendChild(txt);
+
+            renderNodeRecursive(node.left);
+        }
+        if (node.right) {
+            const line = document.createElementNS(svgNS, "line");
+            line.setAttribute("x1", node.x);
+            line.setAttribute("y1", node.y);
+            line.setAttribute("x2", node.right.x);
+            line.setAttribute("y2", node.right.y);
+            line.setAttribute("class", "edge");
+            gMain.appendChild(line);
+
+            const txt = document.createElementNS(svgNS, "text");
+            txt.setAttribute("x", (node.x + node.right.x)/2 + 5);
+            txt.setAttribute("y", (node.y + node.right.y)/2);
+            txt.setAttribute("class", "edge-label");
+            txt.textContent = "1";
+            gMain.appendChild(txt);
+
+            renderNodeRecursive(node.right);
+        }
+
+        // Draw Node
+        const gNode = document.createElementNS(svgNS, "g");
+        gNode.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+        gNode.setAttribute("class", "node-group");
+        
+        let classes = "node-shape";
+        if (node.char) classes += " leaf";
+        else classes += " internal";
+        
+        if (step.highlight.includes(node.id)) {
+            classes += " processing";
+        }
+
+        // Shape
+        if (node.char) {
+            // Rect for leaf
+            const rect = document.createElementNS(svgNS, "rect");
+            rect.setAttribute("x", -20);
+            rect.setAttribute("y", -15);
+            rect.setAttribute("width", 40);
+            rect.setAttribute("height", 30);
+            rect.setAttribute("rx", 5);
+            rect.setAttribute("class", classes);
+            gNode.appendChild(rect);
+        } else {
+            // Circle for internal
+            const circle = document.createElementNS(svgNS, "circle");
+            circle.setAttribute("r", 18);
+            circle.setAttribute("class", classes);
+            gNode.appendChild(circle);
+        }
+
+        // Text
+        const txt = document.createElementNS(svgNS, "text");
+        txt.setAttribute("class", "node-text");
+        txt.textContent = node.freq;
+        gNode.appendChild(txt);
+
+        if (node.char) {
+            const sub = document.createElementNS(svgNS, "text");
+            sub.setAttribute("class", "node-subtext");
+            sub.setAttribute("y", -20);
+            sub.textContent = node.char;
+            gNode.appendChild(sub);
+        }
+
+        gMain.appendChild(gNode);
+    };
+
+    step.forest.forEach(root => renderNodeRecursive(root));
+
+    // 5. If Final Step, Calculate and Show Codes
+    if (step.action === 'done' && step.finalTree) {
+        generateCodes(step.finalTree);
+    }
+}
+
+// Recursively generate Huffman Codes and fill table
+function generateCodes(root) {
+    const codes = [];
+    
+    const traverse = (node, currentCode) => {
+        if (!node) return;
+        if (node.char) {
+            codes.push({ char: node.char, freq: node.freq, code: currentCode });
+        }
+        traverse(node.left, currentCode + '0');
+        traverse(node.right, currentCode + '1');
+    };
+
+    // Edge case: Single node tree
+    if (!root.left && !root.right) {
+        traverse(root, "0"); 
+    } else {
+        traverse(root, "");
+    }
+
+    // Sort alphabetically
+    codes.sort((a, b) => a.char.localeCompare(b.char));
+
+    // Render Table
+    resultTableBody.innerHTML = '';
+    codes.forEach(c => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${c.char}</td>
+            <td>${c.freq}</td>
+            <td style="font-family:monospace; color: var(--accent-color);">${c.code}</td>
+            <td>${c.code.length}</td>
+        `;
+        resultTableBody.appendChild(row);
+    });
+}
+
+</script>
+</body>
+</html>
